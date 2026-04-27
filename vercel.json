@@ -1,18 +1,5 @@
 {
-    "builds": [
-        {
-            "src": "bot.js",
-            "use": "@vercel/node"
-        }
-    ],
-    "routes": [
-        {
-            "src": "/",
-            "dest": "index.html"
-        },
-        {
-            "src": "/(.*)",
-            "dest": "bot.js"
-        }
-    ]
+  "rewrites": [
+    { "source": "/(.*)", "destination": "index.html" }
+  ]
 }
