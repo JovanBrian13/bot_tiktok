@@ -7,6 +7,10 @@
     ],
     "routes": [
         {
+            "src": "/",
+            "dest": "index.html"
+        },
+        {
             "src": "/(.*)",
             "dest": "bot.js"
         }
