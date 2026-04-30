@@ -127,9 +127,11 @@ async function scanAndReply(page) {
 
       // 5. BUKA CHAT: Klik item chat tersebut
       await item.click({ force: true });
-      // Tunggu area chat terbuka menggunakan waitForSelector (bukan timeout statis)
-      await page.waitForSelector('div[contenteditable="true"]', { timeout: 5000 }).catch(() => null);
-      await humanWait(page, 1000, 2000);
+      // Tunggu navigasi selesai & area chat benar-benar siap
+      await page.waitForSelector('div[contenteditable="true"]', { timeout: 8000 }).catch(() => null);
+      
+      // Beri jeda agar pesan-pesan baru sempat dimuat di layar
+      await humanWait(page, 1500, 2500);
 
       // 6. VALIDASI PESAN TERAKHIR DI DALAM CHAT
       //    Cek apakah pesan terakhir dari lawan bicara mengandung keyword "api"
@@ -148,8 +150,10 @@ async function scanAndReply(page) {
         processedChats.set(chatId, Date.now());
       }
 
-      // Hanya proses 1 chat per siklus agar tidak terlalu cepat
-      break;
+      // KRUSIAL: Setelah klik & proses, hentikan loop ini.
+      // Biarkan fungsi startBot() memulai siklus scanning baru 
+      // agar referensi chatItems tidak error (destroyed).
+      return;
 
     } catch (itemErr) {
       // Error pada item tertentu: skip ke item berikutnya
@@ -169,38 +173,47 @@ async function scanAndReply(page) {
 // ============================================================
 async function validateLastMessage(page) {
   try {
-    // Ambil semua bubble pesan di area chat
+    // Gabungkan selektor lama dan baru agar lebih robust menangkap elemen pesan
     const messages = await page.$$('div[class*="message"], div[class*="Message"], div[class*="bubble"], div[class*="Bubble"]');
-
-    if (messages.length === 0) return false;
-
-    // Ambil pesan terakhir
-    const lastMsg = messages[messages.length - 1];
-    const isVisible = await lastMsg.isVisible().catch(() => false);
-    if (!isVisible) return false;
-
-    // Evaluasi pesan terakhir
-    const result = await lastMsg.evaluate((node) => {
-      const text = node.innerText?.toLowerCase()?.trim() || '';
-
-      // Cek apakah pesan ini dari "sisi kanan" (pesan sendiri)
-      // TikTok biasanya memberi class atau style berbeda untuk pesan sendiri
-      const isSelf = node.closest('[class*="self"]') !== null ||
-                     node.closest('[class*="Self"]') !== null ||
-                     node.closest('[class*="right"]') !== null ||
-                     node.closest('[class*="Right"]') !== null ||
-                     node.closest('[class*="own"]') !== null ||
-                     node.closest('[class*="Own"]') !== null;
-
-      return { text, isSelf };
-    }).catch(() => ({ text: '', isSelf: true }));
-
-    // Hanya balas jika: mengandung "api" DAN bukan dari bot sendiri
-    if (result.text.includes('api') && !result.isSelf) {
-      return true;
+    
+    if (messages.length === 0) {
+      console.log(`[DEBUG] Tidak ada elemen pesan yang ditemukan.`);
+      return false;
     }
 
-    return false;
+    // Ambil 3 pesan terakhir untuk berjaga-jaga jika ada jeda loading
+    const lastFewMessages = messages.slice(-3); 
+    let foundKeyword = false;
+
+    for (const [index, msg] of lastFewMessages.entries()) {
+      const isVisible = await msg.isVisible().catch(() => false);
+      if (!isVisible) continue;
+
+      const result = await msg.evaluate((node) => {
+        const text = node.innerText?.toLowerCase()?.trim() || '';
+        
+        // Cek apakah pesan ini dari "sisi kanan" (pesan sendiri)
+        // TikTok biasanya memberi class atau style berbeda untuk pesan sendiri
+        const isSelf = node.closest('[class*="self"]') !== null ||
+                       node.closest('[class*="Self"]') !== null ||
+                       node.closest('[class*="right"]') !== null ||
+                       node.closest('[class*="Right"]') !== null ||
+                       node.closest('[class*="own"]') !== null ||
+                       node.closest('[class*="Own"]') !== null;
+                       
+        return { text, isSelf };
+      }).catch(() => ({ text: '', isSelf: true }));
+
+      if (result.text) {
+        console.log(`[DEBUG] Pesan dicek: "${result.text.substring(0, 30)}" | isSelf: ${result.isSelf}`);
+      }
+
+      if (result.text.includes('api') && !result.isSelf) {
+        foundKeyword = true;
+      }
+    }
+    
+    return foundKeyword;
   } catch (err) {
     console.log(`[VALIDASI ERROR] ${err.message}`);
     return false;
